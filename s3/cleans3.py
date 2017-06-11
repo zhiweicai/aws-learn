@@ -6,9 +6,9 @@ s3 = boto3.resource('s3')
 # Print out bucket names
 for bucket in s3.buckets.all():
     print bucket.name
-    
-    for item in bucket.objects.all():
-    	print item.key
+    for key in bucket.objects.all():
+        key.delete()
+    bucket.delete()
 
 
-    
+
