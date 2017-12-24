@@ -1,0 +1,265 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <title>Family photos</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
+    <link rel="stylesheet" href="mycss.css">
+
+    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.169.0.min.js"></script>
+</head>
+
+
+<body>
+
+<nav id="mysidebar" class="w3-sidebar w3-bar-block">
+    <div id="fb-root"></div>      
+    <fb:login-button scope="public_profile,email" onlogin="checkLoginState()"> </fb:login-button>
+    <div id="mys3folder"></div>  
+</nav>  
+ 
+<!-- main picutre -->
+<div id="mypicturediv" class="w3-main">
+    <img id="mypic" src="nopic.jpg" alt="Please clikc the login button!">
+</div> 
+
+
+<script>
+    var myappId = '374272743033813';
+    var roleArn = 'arn:aws:iam::146668382264:role/myphoto2';
+    var bucketName = 'photo.caihome.net';
+    AWS.config.region = 'us-east-1';
+
+    var fbUserId;
+    var bucket = new AWS.S3({
+        params: {
+            Bucket: bucketName
+        }
+    });
+
+
+    function ShowPic(filenameToShow) {
+        var item = document.getElementById("mypic");
+        item.setAttribute("src", filenameToShow);      
+    }
+
+
+    function ShowFolder(myfolder) {
+        console.log(myfolder);
+        var list = DrawFolders(document.getElementById('mys3folder'),myfolder);        
+    }
+
+    function ShowFiles(foldername,myfiles) {
+        if (foldername.length == 0)
+            return;
+                
+        var name = document.getElementById(foldername).getAttribute("show");
+
+        var elementname = foldername + "-div";
+        if (name != "done") {
+            var filelist = DrawFiles(elementname,myfiles);
+            document.getElementById(foldername).setAttribute("show", "done");
+            document.getElementById(foldername).appendChild(filelist);
+        }
+
+        console.log("toggle display");
+        ToggleElment(document.getElementById(elementname));
+    }
+
+
+    function DrawFolders(targetElement,array) {
+   
+        for (var i = 0; i < array.length; i++) {
+            // Create the list item:
+            var x = document.createElement('A');
+                         
+            x.id = array[i];    
+            x.href = "#";
+            x.className = "w3-bar-item w3-button";
+            x.setAttribute("show", "init");
+
+            x.onclick = function () {
+                console.log("onclick from draw folder");
+                GetFiles(this.id);
+            }
+            // Set its contents:
+            x.appendChild(document.createTextNode(array[i]));              
+
+            // Add it to the list:
+            targetElement.appendChild(x);
+        }
+   
+    }
+
+
+    function DrawFiles(elementname,fileArray) {
+        // Create the list element:
+        console.log("DrawFiles");
+        console.log(fileArray);
+        var list = document.createElement('div');
+
+        for (var i = 0; i < fileArray.length; i++) {
+
+            var filename = fileArray[i].split("/").slice(-1).pop();
+
+            var fileinfo = filename.split(".");
+
+            if (fileinfo.length != 2)
+                continue;
+
+            if (fileinfo[1].toUpperCase() != "JPG")
+                continue;
+        
+            var x = document.createElement("A");
+            x.setAttribute("name", fileArray[i]);
+            x.href = "#";
+            x.id = "file-" + fileinfo[0];
+            x.className = "w3-bar-item w3-button w3-small";
+          
+            x.onclick = function () { 
+                console.log("file clicked:" + this.name);
+                ShowPic(this.name);
+                event.cancelBubble = true;
+            }
+
+            x.appendChild(document.createTextNode(fileinfo[0]));
+            
+            // Add it to the list:
+            list.appendChild(x);
+        }
+
+        // Finally, return the constructed list:
+        list.id = elementname;
+        list.style.display = "none";
+        return list;
+    }
+
+
+
+    function GetFiles(prefix) {
+        var s3files = [];
+        bucket.listObjectsV2({
+            Prefix: prefix
+        }, function (err, data) {
+            if (err) {
+                console.log("error to get files from:" + prefix);
+            } else {
+                console.log("get file info");
+                data.Contents.forEach(function (obj) {
+                    s3files.push(obj.Key);
+                });
+
+               ShowFiles(prefix,s3files);               
+            }
+        });
+    }
+
+    function GetFolders() {
+        var s3folder = [];
+        bucket.listObjectsV2(
+            {
+                Delimiter: '/'
+            },
+            function (err, data) {
+                if (err) {
+                    console.log("error to get folders");
+                } else {
+                    console.log("get folder info");
+                    data.CommonPrefixes.forEach(function (obj) {
+                        s3folder.push(obj.Prefix.slice(0, -1));
+                    });
+                      
+                    ShowFolder(s3folder);                  
+                }
+            }
+        );
+
+    }
+
+
+    function getS3Info(response) {
+        document.getElementById("mypic").setAttribute("alt", fbUserId);       
+        console.log("setup credential");
+        fbUserId = response.authResponse.userID;
+        console.log(fbUserId);
+        console.log(response.authResponse.accessToken);
+        bucket.config.credentials = new AWS.WebIdentityCredentials({
+            ProviderId: 'graph.facebook.com',
+            RoleArn: roleArn,
+            WebIdentityToken: response.authResponse.accessToken
+        });
+        GetFolders();
+        document.getElementById("mypic").setAttribute("alt", "Please choose folder and file to view it!");
+    }
+
+
+    function statusChangeCallback(response) {
+        console.log(response.status);
+        console.log(response.authResponse);
+        // The response object is returned with a status field that lets the
+        // app know the current login status of the person.
+        // Full docs on the response object can be found in the documentation
+        // for FB.getLoginStatus().
+        if (response.status === 'connected') {
+            // Logged into your app and Facebook.
+            getS3Info(response);
+        } else {
+            console.log("failed to logging");
+        }
+    }
+
+
+    function checkLoginState() {
+        FB.getLoginStatus(function (response) {
+            statusChangeCallback(response);
+        });
+    }
+
+    window.fbAsyncInit = function () {
+        console.log('fb init');
+        FB.init({
+            appId: myappId,
+            cookie: true,  // enable cookies to allow the server to access
+            // the session
+            xfbml: true,  // parse social plugins on this page
+            version: 'v2.11' // use graph api version 2.8
+        });
+
+    };
+
+    // Load the Facebook SDK asynchronously
+    (function (d, s, id) {
+        var js, fjs = d.getElementsByTagName(s)[0];
+        if (d.getElementById(id)) {
+            return;
+        }
+        js = d.createElement(s);
+        js.id = id;
+        js.src = "https://connect.facebook.net/en_US/all.js";
+        fjs.parentNode.insertBefore(js, fjs);
+    }(document, 'script', 'facebook-jssdk'));
+
+
+
+
+    function ToggleDisplayByID(itemName) {
+        var x = document.getElementById(itemName);
+        ToggleElment(x);
+    }
+
+
+    function ToggleElment(item) {
+        if (item.style.display === "none") {
+            item.style.display = "block";
+        } else {
+            item.style.display = "none";
+        }
+    }
+
+
+</script>
+
+
+</body>
+</html>    
